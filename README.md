@@ -12,7 +12,9 @@ go build -o bcli .
 
 ```bash
 ./bcli help
+./bcli mysql auth --profile local
 ./bcli mysql --profile local -- -e "select 1"
+./bcli redis auth --profile cache
 ./bcli redis --profile cache -- ping
 ./bcli tools uuid
 ./bcli tools now
@@ -55,11 +57,38 @@ BCLI_CONFIG=/path/to/config.json ./bcli mysql --profile local
 
 不要把密码、token、证书等敏感信息写进仓库。MySQL 和 Redis 的密码优先使用本机客户端支持的环境变量、交互输入或本机安全配置。
 
+## 认证信息
+
+密码通过系统凭据库保存。macOS 下会写入 Keychain，不会写入 `~/.bcli/config.json`。
+
+```bash
+./bcli mysql auth --profile local
+./bcli redis auth --profile cache
+```
+
+也可以直接传入密码：
+
+```bash
+./bcli mysql auth --profile local "password"
+./bcli redis auth --profile cache "password"
+```
+
+直接传参可能进入 shell history。日常使用更推荐省略密码，让 `bcli` 通过隐藏输入读取。
+
+执行客户端时，`bcli` 会按 profile 读取凭据，并只注入到子进程环境：
+
+```text
+mysql: MYSQL_PWD
+redis: REDISCLI_AUTH
+```
+
 ## 当前命令
 
 ```text
 bcli mysql [--profile name] [-- mysql args...]
+bcli mysql auth [--profile name] [password]
 bcli redis [--profile name] [-- redis-cli args...]
+bcli redis auth [--profile name] [password]
 bcli tools uuid
 bcli tools now
 bcli tools urlencode <text>

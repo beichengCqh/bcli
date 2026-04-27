@@ -11,13 +11,29 @@ import (
 const appName = "bcli"
 
 type runner struct {
-	stdin  io.Reader
-	stdout io.Writer
-	stderr io.Writer
+	stdin       io.Reader
+	stdout      io.Writer
+	stderr      io.Writer
+	credentials credentialStore
 }
 
 func Run(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) int {
-	r := runner{stdin: stdin, stdout: stdout, stderr: stderr}
+	r := runner{
+		stdin:       stdin,
+		stdout:      stdout,
+		stderr:      stderr,
+		credentials: keyringCredentialStore{},
+	}
+	return r.run(args)
+}
+
+func runWithCredentialStore(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, credentials credentialStore) int {
+	r := runner{
+		stdin:       stdin,
+		stdout:      stdout,
+		stderr:      stderr,
+		credentials: credentials,
+	}
 	return r.run(args)
 }
 
@@ -51,7 +67,9 @@ func (r runner) printHelp() {
 	fmt.Fprintf(r.stdout, `%s is a personal command center.
 
 Usage:
+  %s mysql auth [--profile name] [password]
   %s mysql [--profile name] [-- mysql args...]
+  %s redis auth [--profile name] [password]
   %s redis [--profile name] [-- redis-cli args...]
   %s tools <command> [args...]
 
@@ -62,11 +80,13 @@ Commands:
   version     Print version
 
 Examples:
+  %s mysql auth --profile local
   %s mysql --profile local -- -e "select 1"
+  %s redis auth --profile cache
   %s redis --profile cache -- ping
   %s tools uuid
   %s tools base64 encode hello
-`, appName, appName, appName, appName, appName, appName, appName, appName)
+`, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName)
 }
 
 func (r runner) runExternal(kind string, args []string) int {
@@ -74,6 +94,9 @@ func (r runner) runExternal(kind string, args []string) int {
 	if err != nil {
 		fmt.Fprintln(r.stderr, err)
 		return 2
+	}
+	if len(rest) > 0 && rest[0] == "auth" {
+		return r.runExternalAuth(kind, profileName, rest[1:])
 	}
 
 	cfg, err := LoadConfig()
@@ -100,7 +123,7 @@ func (r runner) runExternal(kind string, args []string) int {
 	cmd.Stdin = r.stdin
 	cmd.Stdout = r.stdout
 	cmd.Stderr = r.stderr
-	cmd.Env = os.Environ()
+	cmd.Env = r.externalEnv(kind, profileName)
 
 	err = cmd.Run()
 	if err == nil {
@@ -113,6 +136,60 @@ func (r runner) runExternal(kind string, args []string) int {
 
 	fmt.Fprintf(r.stderr, "run %s: %v\n", executable, err)
 	return 1
+}
+
+func (r runner) runExternalAuth(kind string, profileName string, args []string) int {
+	if len(args) > 1 {
+		fmt.Fprintf(r.stderr, "usage: %s %s auth [--profile name] [password]\n", appName, kind)
+		return 2
+	}
+
+	secret := ""
+	if len(args) == 1 {
+		secret = args[0]
+	} else {
+		var err error
+		secret, err = readSecretFromTerminal(fmt.Sprintf("%s %s password for profile %q: ", appName, kind, normalizeProfileName(profileName)))
+		if err != nil {
+			fmt.Fprintf(r.stderr, "read password: %v\n", err)
+			return 1
+		}
+	}
+	if secret == "" {
+		fmt.Fprintln(r.stderr, "password cannot be empty")
+		return 2
+	}
+
+	if err := r.credentials.Set(kind, normalizeProfileName(profileName), secret); err != nil {
+		fmt.Fprintf(r.stderr, "store credential: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(r.stdout, "%s credential stored for profile %q\n", kind, normalizeProfileName(profileName))
+	return 0
+}
+
+func (r runner) externalEnv(kind string, profileName string) []string {
+	env := os.Environ()
+	secret, err := r.credentials.Get(kind, normalizeProfileName(profileName))
+	if err != nil {
+		if err != errCredentialNotFound {
+			fmt.Fprintf(r.stderr, "warning: read credential: %v\n", err)
+		}
+		return env
+	}
+	if secret == "" {
+		return env
+	}
+
+	switch kind {
+	case "mysql":
+		return append(env, "MYSQL_PWD="+secret)
+	case "redis":
+		return append(env, "REDISCLI_AUTH="+secret)
+	default:
+		return env
+	}
 }
 
 func parseProfileArgs(args []string) (string, []string, error) {
