@@ -2,6 +2,8 @@
 # https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
 #
 # Binaries for programs and plugins
+bc
+bcli
 *.exe
 *.exe~
 *.dll
@@ -13,6 +15,7 @@
 
 # Code coverage profiles and other test artifacts
 *.out
+coverage.out
 coverage.*
 *.coverprofile
 profile.cov

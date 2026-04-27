@@ -1,0 +1,152 @@
+package app
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"strings"
+)
+
+const appName = "bcli"
+
+type runner struct {
+	stdin  io.Reader
+	stdout io.Writer
+	stderr io.Writer
+}
+
+func Run(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) int {
+	r := runner{stdin: stdin, stdout: stdout, stderr: stderr}
+	return r.run(args)
+}
+
+func (r runner) run(args []string) int {
+	if len(args) == 0 {
+		r.printHelp()
+		return 0
+	}
+
+	switch args[0] {
+	case "help", "-h", "--help":
+		r.printHelp()
+		return 0
+	case "mysql":
+		return r.runExternal("mysql", args[1:])
+	case "redis":
+		return r.runExternal("redis", args[1:])
+	case "tools":
+		return r.runTools(args[1:])
+	case "version":
+		fmt.Fprintln(r.stdout, "bcli dev")
+		return 0
+	default:
+		fmt.Fprintf(r.stderr, "unknown command: %s\n\n", args[0])
+		r.printHelp()
+		return 2
+	}
+}
+
+func (r runner) printHelp() {
+	fmt.Fprintf(r.stdout, `%s is a personal command center.
+
+Usage:
+  %s mysql [--profile name] [-- mysql args...]
+  %s redis [--profile name] [-- redis-cli args...]
+  %s tools <command> [args...]
+
+Commands:
+  mysql       Run mysql client with an optional configured profile
+  redis       Run redis-cli with an optional configured profile
+  tools       Small personal utilities
+  version     Print version
+
+Examples:
+  %s mysql --profile local -- -e "select 1"
+  %s redis --profile cache -- ping
+  %s tools uuid
+  %s tools base64 encode hello
+`, appName, appName, appName, appName, appName, appName, appName, appName)
+}
+
+func (r runner) runExternal(kind string, args []string) int {
+	profileName, rest, err := parseProfileArgs(args)
+	if err != nil {
+		fmt.Fprintln(r.stderr, err)
+		return 2
+	}
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		fmt.Fprintf(r.stderr, "load config: %v\n", err)
+		return 1
+	}
+
+	profile, err := cfg.ExternalProfile(kind, profileName)
+	if err != nil {
+		fmt.Fprintln(r.stderr, err)
+		return 2
+	}
+
+	executable := profile.Executable
+	if executable == "" {
+		executable = defaultExecutable(kind)
+	}
+
+	cmdArgs := append([]string{}, profile.Args...)
+	cmdArgs = append(cmdArgs, rest...)
+
+	cmd := exec.Command(executable, cmdArgs...)
+	cmd.Stdin = r.stdin
+	cmd.Stdout = r.stdout
+	cmd.Stderr = r.stderr
+	cmd.Env = os.Environ()
+
+	err = cmd.Run()
+	if err == nil {
+		return 0
+	}
+
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return exitErr.ExitCode()
+	}
+
+	fmt.Fprintf(r.stderr, "run %s: %v\n", executable, err)
+	return 1
+}
+
+func parseProfileArgs(args []string) (string, []string, error) {
+	profile := ""
+	rest := make([]string, 0, len(args))
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--":
+			rest = append(rest, args[i+1:]...)
+			return profile, rest, nil
+		case arg == "--profile":
+			if i+1 >= len(args) {
+				return "", nil, fmt.Errorf("--profile requires a value")
+			}
+			profile = args[i+1]
+			i++
+		case strings.HasPrefix(arg, "--profile="):
+			profile = strings.TrimPrefix(arg, "--profile=")
+			if profile == "" {
+				return "", nil, fmt.Errorf("--profile requires a value")
+			}
+		default:
+			rest = append(rest, arg)
+		}
+	}
+
+	return profile, rest, nil
+}
+
+func defaultExecutable(kind string) string {
+	if kind == "redis" {
+		return "redis-cli"
+	}
+	return kind
+}
