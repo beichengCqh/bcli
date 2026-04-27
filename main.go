@@ -3,9 +3,9 @@ package main
 import (
 	"os"
 
-	"bcli/internal/app"
+	"bcli/internal/cli"
 )
 
 func main() {
-	os.Exit(app.Run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	os.Exit(cli.Run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }

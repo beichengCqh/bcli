@@ -1,50 +1,27 @@
-package app
+package storage
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
+
+	"bcli/internal/core/profile"
 )
-
-func TestExternalProfileCommandArgs(t *testing.T) {
-	mysql := ExternalProfile{
-		Host:     "127.0.0.1",
-		Port:     3306,
-		User:     "root",
-		Database: "app",
-		Args:     []string{"--protocol", "tcp"},
-	}
-	if got, want := mysql.CommandArgs("mysql"), []string{"-h", "127.0.0.1", "-P", "3306", "-u", "root", "--protocol", "tcp"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("mysql args = %#v, want %#v", got, want)
-	}
-
-	redis := ExternalProfile{
-		Host:     "127.0.0.1",
-		Port:     6379,
-		User:     "default",
-		Database: "1",
-		Args:     []string{"--tls"},
-	}
-	if got, want := redis.CommandArgs("redis"), []string{"-h", "127.0.0.1", "-p", "6379", "--user", "default", "-n", "1", "--tls"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("redis args = %#v, want %#v", got, want)
-	}
-}
 
 func TestSaveConfigKeepsSecretsOutOfFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	t.Setenv("BCLI_CONFIG", path)
 
-	cfg := Config{}
-	cfg.SetExternalProfile("mysql", "local", ExternalProfile{
+	cfg := profile.Config{}
+	cfg.SetExternalProfile("mysql", "local", profile.ExternalProfile{
 		Host: "127.0.0.1",
 		Port: 3306,
 		User: "root",
 	})
-	if err := SaveConfig(cfg); err != nil {
-		t.Fatalf("SaveConfig returned error: %v", err)
+	if err := (ConfigStore{}).Save(cfg); err != nil {
+		t.Fatalf("Save returned error: %v", err)
 	}
 
 	data, err := os.ReadFile(path)
@@ -65,13 +42,13 @@ func TestDefaultConfigPathUsesConfigsDirectory(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("BCLI_CONFIG", "")
 
-	path, err := configWritePath()
+	path, err := ConfigWritePath()
 	if err != nil {
-		t.Fatalf("configWritePath returned error: %v", err)
+		t.Fatalf("ConfigWritePath returned error: %v", err)
 	}
 	want := filepath.Join(home, ".bcli", "configs", "connections.json")
 	if path != want {
-		t.Fatalf("configWritePath = %q, want %q", path, want)
+		t.Fatalf("ConfigWritePath = %q, want %q", path, want)
 	}
 }
 
@@ -88,15 +65,15 @@ func TestLoadConfigFallsBackToLegacyPath(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	cfg, err := LoadConfig()
+	cfg, err := (ConfigStore{}).Load()
 	if err != nil {
-		t.Fatalf("LoadConfig returned error: %v", err)
+		t.Fatalf("Load returned error: %v", err)
 	}
-	profile, err := cfg.ExternalProfile("mysql", "local")
+	p, err := cfg.ExternalProfile("mysql", "local")
 	if err != nil {
 		t.Fatalf("ExternalProfile returned error: %v", err)
 	}
-	if profile.Host != "127.0.0.1" {
-		t.Fatalf("profile host = %q", profile.Host)
+	if p.Host != "127.0.0.1" {
+		t.Fatalf("profile host = %q", p.Host)
 	}
 }
