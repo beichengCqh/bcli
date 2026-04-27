@@ -33,6 +33,11 @@ func (s *fakeCredentialStore) Get(kind string, profile string) (string, error) {
 	return value, nil
 }
 
+func (s *fakeCredentialStore) Delete(kind string, profile string) error {
+	delete(s.values, kind+":"+profile)
+	return nil
+}
+
 func TestParseProfileArgs(t *testing.T) {
 	profile, rest, err := parseProfileArgs([]string{"--profile", "local", "--", "-e", "select 1"})
 	if err != nil {

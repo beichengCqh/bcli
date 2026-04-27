@@ -51,6 +51,8 @@ func (r runner) run(args []string) int {
 		return r.runExternal("mysql", args[1:])
 	case "redis":
 		return r.runExternal("redis", args[1:])
+	case "tui":
+		return r.runTUI()
 	case "tools":
 		return r.runTools(args[1:])
 	case "version":
@@ -71,11 +73,13 @@ Usage:
   %s mysql [--profile name] [-- mysql args...]
   %s redis auth [--profile name] [password]
   %s redis [--profile name] [-- redis-cli args...]
+  %s tui
   %s tools <command> [args...]
 
 Commands:
   mysql       Run mysql client with an optional configured profile
   redis       Run redis-cli with an optional configured profile
+  tui         Manage connection profiles in a terminal UI
   tools       Small personal utilities
   version     Print version
 
@@ -84,9 +88,10 @@ Examples:
   %s mysql --profile local -- -e "select 1"
   %s redis auth --profile cache
   %s redis --profile cache -- ping
+  %s tui
   %s tools uuid
   %s tools base64 encode hello
-`, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName)
+`, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName)
 }
 
 func (r runner) runExternal(kind string, args []string) int {
@@ -116,8 +121,11 @@ func (r runner) runExternal(kind string, args []string) int {
 		executable = defaultExecutable(kind)
 	}
 
-	cmdArgs := append([]string{}, profile.Args...)
+	cmdArgs := profile.CommandArgs(kind)
 	cmdArgs = append(cmdArgs, rest...)
+	if kind == "mysql" && profile.Database != "" {
+		cmdArgs = append(cmdArgs, profile.Database)
+	}
 
 	cmd := exec.Command(executable, cmdArgs...)
 	cmd.Stdin = r.stdin

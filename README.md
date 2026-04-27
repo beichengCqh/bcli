@@ -2,6 +2,8 @@
 
 `bcli` 是一个个人命令中心，用来统一承载数据库客户端入口、Redis 客户端入口，以及常用的小工具。
 
+当前项目通过 `go.mod` 和 `.tool-versions` 固定 Go 版本为 `1.24.2`，影响范围限定在本仓库。
+
 ## 构建
 
 ```bash
@@ -12,6 +14,7 @@ go build -o bcli .
 
 ```bash
 ./bcli help
+./bcli tui
 ./bcli mysql auth --profile local
 ./bcli mysql --profile local -- -e "select 1"
 ./bcli redis auth --profile cache
@@ -23,6 +26,14 @@ go build -o bcli .
 ```
 
 ## 配置
+
+推荐使用 TUI 管理连接配置：
+
+```bash
+./bcli tui
+```
+
+TUI 支持新增、编辑、删除 MySQL/Redis profile，并统一维护认证状态。连接参数写入配置文件，密码写入系统凭据库。
 
 默认配置文件路径：
 
@@ -42,20 +53,26 @@ BCLI_CONFIG=/path/to/config.json ./bcli mysql --profile local
 {
   "mysql": {
     "local": {
-      "executable": "mysql",
-      "args": ["-h", "127.0.0.1", "-P", "3306", "-u", "root"]
+      "host": "127.0.0.1",
+      "port": 3306,
+      "user": "root",
+      "database": "app"
     }
   },
   "redis": {
     "cache": {
-      "executable": "redis-cli",
-      "args": ["-h", "127.0.0.1", "-p", "6379"]
+      "host": "127.0.0.1",
+      "port": 6379,
+      "user": "default",
+      "database": "0"
     }
   }
 }
 ```
 
-不要把密码、token、证书等敏感信息写进仓库。MySQL 和 Redis 的密码优先使用本机客户端支持的环境变量、交互输入或本机安全配置。
+`executable` 和 `args` 仍然可用，适合少量高级参数；常规 host、port、user、database 优先使用结构化字段。
+
+不要把密码、token、证书等敏感信息写进仓库或 `~/.bcli/config.json`。
 
 ## 认证信息
 
@@ -89,6 +106,7 @@ bcli mysql [--profile name] [-- mysql args...]
 bcli mysql auth [--profile name] [password]
 bcli redis [--profile name] [-- redis-cli args...]
 bcli redis auth [--profile name] [password]
+bcli tui
 bcli tools uuid
 bcli tools now
 bcli tools urlencode <text>
