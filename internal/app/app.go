@@ -39,14 +39,15 @@ func runWithCredentialStore(args []string, stdin io.Reader, stdout io.Writer, st
 
 func (r runner) run(args []string) int {
 	if len(args) == 0 {
-		r.printHelp()
-		return 0
+		return r.runTUI()
 	}
 
 	switch args[0] {
 	case "help", "-h", "--help":
 		r.printHelp()
 		return 0
+	case "auth":
+		return r.runAuth(args[1:])
 	case "mysql":
 		return r.runExternal("mysql", args[1:])
 	case "redis":
@@ -69,14 +70,15 @@ func (r runner) printHelp() {
 	fmt.Fprintf(r.stdout, `%s is a personal command center.
 
 Usage:
-  %s mysql auth [--profile name] [password]
+  %s
+  %s auth <mysql|redis> [--profile name] [password]
   %s mysql [--profile name] [-- mysql args...]
-  %s redis auth [--profile name] [password]
   %s redis [--profile name] [-- redis-cli args...]
   %s tui
   %s tools <command> [args...]
 
 Commands:
+  auth        Store credentials for a connection profile
   mysql       Run mysql client with an optional configured profile
   redis       Run redis-cli with an optional configured profile
   tui         Manage connection profiles in a terminal UI
@@ -84,14 +86,47 @@ Commands:
   version     Print version
 
 Examples:
-  %s mysql auth --profile local
+  %s
+  %s auth mysql --profile local
   %s mysql --profile local -- -e "select 1"
-  %s redis auth --profile cache
+  %s auth redis --profile cache
   %s redis --profile cache -- ping
   %s tui
   %s tools uuid
   %s tools base64 encode hello
-`, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName)
+`, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName, appName)
+}
+
+func (r runner) runAuth(args []string) int {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		r.printAuthHelp()
+		return 0
+	}
+
+	kind := args[0]
+	if kind != "mysql" && kind != "redis" {
+		fmt.Fprintf(r.stderr, "unknown auth target: %s\n\n", kind)
+		r.printAuthHelp()
+		return 2
+	}
+
+	profileName, rest, err := parseProfileArgs(args[1:])
+	if err != nil {
+		fmt.Fprintln(r.stderr, err)
+		return 2
+	}
+	return r.runExternalAuth(kind, profileName, rest)
+}
+
+func (r runner) printAuthHelp() {
+	fmt.Fprintf(r.stdout, `Usage:
+  %s auth mysql [--profile name] [password]
+  %s auth redis [--profile name] [password]
+
+Examples:
+  %s auth mysql --profile local
+  %s auth redis --profile cache "password"
+`, appName, appName, appName, appName)
 }
 
 func (r runner) runExternal(kind string, args []string) int {
@@ -99,9 +134,6 @@ func (r runner) runExternal(kind string, args []string) int {
 	if err != nil {
 		fmt.Fprintln(r.stderr, err)
 		return 2
-	}
-	if len(rest) > 0 && rest[0] == "auth" {
-		return r.runExternalAuth(kind, profileName, rest[1:])
 	}
 
 	cfg, err := LoadConfig()
@@ -148,7 +180,7 @@ func (r runner) runExternal(kind string, args []string) int {
 
 func (r runner) runExternalAuth(kind string, profileName string, args []string) int {
 	if len(args) > 1 {
-		fmt.Fprintf(r.stderr, "usage: %s %s auth [--profile name] [password]\n", appName, kind)
+		fmt.Fprintf(r.stderr, "usage: %s auth %s [--profile name] [password]\n", appName, kind)
 		return 2
 	}
 
@@ -157,7 +189,7 @@ func (r runner) runExternalAuth(kind string, profileName string, args []string) 
 		secret = args[0]
 	} else {
 		var err error
-		secret, err = readSecretFromTerminal(fmt.Sprintf("%s %s password for profile %q: ", appName, kind, normalizeProfileName(profileName)))
+		secret, err = readSecretFromTerminal(fmt.Sprintf("%s auth %s password for profile %q: ", appName, kind, normalizeProfileName(profileName)))
 		if err != nil {
 			fmt.Fprintf(r.stderr, "read password: %v\n", err)
 			return 1

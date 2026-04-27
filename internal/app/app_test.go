@@ -82,7 +82,7 @@ func TestExternalAuthStoresCredential(t *testing.T) {
 	var stderr bytes.Buffer
 	store := &fakeCredentialStore{}
 
-	code := runWithCredentialStore([]string{"redis", "auth", "--profile", "cache", "secret-value"}, strings.NewReader(""), &stdout, &stderr, store)
+	code := runWithCredentialStore([]string{"auth", "redis", "--profile", "cache", "secret-value"}, strings.NewReader(""), &stdout, &stderr, store)
 	if code != 0 {
 		t.Fatalf("code = %d, stderr = %s", code, stderr.String())
 	}
@@ -91,6 +91,20 @@ func TestExternalAuthStoresCredential(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "secret-value") || strings.Contains(stderr.String(), "secret-value") {
 		t.Fatalf("secret leaked in output: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestOldNestedAuthCommandIsNotAccepted(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	store := &fakeCredentialStore{}
+
+	code := runWithCredentialStore([]string{"redis", "auth", "--profile", "cache", "secret-value"}, strings.NewReader(""), &stdout, &stderr, store)
+	if code == 0 {
+		t.Fatalf("old nested auth command unexpectedly succeeded")
+	}
+	if got := store.values["redis:cache"]; got != "" {
+		t.Fatalf("old nested auth stored secret = %q", got)
 	}
 }
 

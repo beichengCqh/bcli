@@ -23,7 +23,7 @@ type ExternalProfile struct {
 }
 
 func LoadConfig() (Config, error) {
-	path, err := configPath()
+	path, err := configReadPath()
 	if err != nil {
 		return Config{}, err
 	}
@@ -44,7 +44,7 @@ func LoadConfig() (Config, error) {
 }
 
 func SaveConfig(cfg Config) error {
-	path, err := configPath()
+	path, err := configWritePath()
 	if err != nil {
 		return err
 	}
@@ -61,11 +61,32 @@ func SaveConfig(cfg Config) error {
 	return os.WriteFile(path, data, 0600)
 }
 
-func configPath() (string, error) {
+func configWritePath() (string, error) {
 	if path := os.Getenv("BCLI_CONFIG"); path != "" {
 		return path, nil
 	}
 
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".bcli", "configs", "connections.json"), nil
+}
+
+func configReadPath() (string, error) {
+	if path := os.Getenv("BCLI_CONFIG"); path != "" {
+		return path, nil
+	}
+
+	path, err := configWritePath()
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(path); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return path, err
+	}
+
+	// 兼容早期版本的默认路径；保存时会写入新的 configs 目录。
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

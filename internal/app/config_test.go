@@ -59,3 +59,44 @@ func TestSaveConfigKeepsSecretsOutOfFile(t *testing.T) {
 		t.Fatalf("saved config contains credential-looking content: %s", string(data))
 	}
 }
+
+func TestDefaultConfigPathUsesConfigsDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("BCLI_CONFIG", "")
+
+	path, err := configWritePath()
+	if err != nil {
+		t.Fatalf("configWritePath returned error: %v", err)
+	}
+	want := filepath.Join(home, ".bcli", "configs", "connections.json")
+	if path != want {
+		t.Fatalf("configWritePath = %q, want %q", path, want)
+	}
+}
+
+func TestLoadConfigFallsBackToLegacyPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("BCLI_CONFIG", "")
+
+	legacyPath := filepath.Join(home, ".bcli", "config.json")
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0700); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	if err := os.WriteFile(legacyPath, []byte(`{"mysql":{"local":{"host":"127.0.0.1"}}}`), 0600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
+	profile, err := cfg.ExternalProfile("mysql", "local")
+	if err != nil {
+		t.Fatalf("ExternalProfile returned error: %v", err)
+	}
+	if profile.Host != "127.0.0.1" {
+		t.Fatalf("profile host = %q", profile.Host)
+	}
+}
