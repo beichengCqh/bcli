@@ -34,14 +34,44 @@ func TestConnectionTestArgs(t *testing.T) {
 	}
 }
 
-func TestConnectionTestReturnsInstallHintWhenExecutableMissing(t *testing.T) {
+func TestRunKeepsMissingConfiguredExecutable(t *testing.T) {
+	var stderr bytes.Buffer
+	profiles := &memoryProfileStore{cfg: profile.Config{
+		MySQL: map[string]profile.ExternalProfile{
+			"local": {Executable: "/missing/bcli-test/mysql"},
+		},
+	}}
+	s := NewService(profile.NewService(profiles), auth.NewService(&fakeCredentialStore{}), strings.NewReader(""), &bytes.Buffer{}, &stderr)
+
+	code := s.Run("mysql", "local", []string{"-e", "select 1"})
+	if code == 0 {
+		t.Fatalf("Run returned success")
+	}
+	if !strings.Contains(stderr.String(), "/missing/bcli-test/mysql") {
+		t.Fatalf("stderr = %q, want configured executable path", stderr.String())
+	}
+}
+
+func TestConnectionTestReturnsConfiguredExecutableErrorWhenMissing(t *testing.T) {
 	var stderr bytes.Buffer
 	s := NewService(profile.NewService(&memoryProfileStore{}), auth.NewService(&fakeCredentialStore{}), strings.NewReader(""), &bytes.Buffer{}, &stderr)
 	err := s.TestConnection("mysql", "local", profile.ExternalProfile{Executable: "/missing/bcli-test/mysql"}, "")
 	if err == nil {
 		t.Fatalf("TestConnection returned nil")
 	}
-	if !strings.Contains(err.Error(), "mysql client not found") {
+	if !strings.Contains(err.Error(), "configured executable not found: /missing/bcli-test/mysql") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestConnectionTestReturnsInstallHintWhenDefaultExecutableMissing(t *testing.T) {
+	var stderr bytes.Buffer
+	s := NewService(profile.NewService(&memoryProfileStore{}), auth.NewService(&fakeCredentialStore{}), strings.NewReader(""), &bytes.Buffer{}, &stderr)
+	err := s.TestConnection("bcli-test-missing-client", "local", profile.ExternalProfile{}, "")
+	if err == nil {
+		t.Fatalf("TestConnection returned nil")
+	}
+	if !strings.Contains(err.Error(), "bcli-test-missing-client client not found") {
 		t.Fatalf("error = %q", err.Error())
 	}
 }

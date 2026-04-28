@@ -330,16 +330,16 @@ func (m model) updateConfirmDelete(key tea.KeyMsg) model {
 			m.screen = profilesScreen
 			return m
 		}
+		m.refreshEntries()
+		if m.selected >= len(m.entries) && m.selected > 0 {
+			m.selected--
+		}
 		if err := m.auth.DeleteCredential(selected.kind, selected.name); err != nil {
 			m.message = "delete credential: " + err.Error()
 			m.screen = profilesScreen
 			return m
 		}
 		m.message = fmt.Sprintf("deleted %s/%s", selected.kind, selected.name)
-		m.refreshEntries()
-		if m.selected >= len(m.entries) && m.selected > 0 {
-			m.selected--
-		}
 		m.screen = profilesScreen
 	case "n", "N", "esc", "q", "ctrl+c":
 		m.screen = profilesScreen
@@ -757,7 +757,7 @@ func formFromEntry(selected entry) form {
 		user:       selected.profile.User,
 		database:   selected.profile.Database,
 		executable: selected.profile.Executable,
-		args:       strings.Join(selected.profile.Args, " "),
+		args:       quoteArgs(selected.profile.Args),
 	}
 }
 
@@ -802,9 +802,13 @@ func (f form) profile() (string, profile.ExternalProfile, error) {
 	if err != nil {
 		return "", profile.ExternalProfile{}, err
 	}
+	args, err := splitArgs(f.args)
+	if err != nil {
+		return "", profile.ExternalProfile{}, err
+	}
 	return name, profile.ExternalProfile{
 		Executable: strings.TrimSpace(f.executable),
-		Args:       strings.Fields(f.args),
+		Args:       args,
 		Host:       strings.TrimSpace(f.host),
 		Port:       port,
 		User:       strings.TrimSpace(f.user),
@@ -930,6 +934,70 @@ func parseOptionalPort(value string) (int, error) {
 		return 0, fmt.Errorf("port must be between 1 and 65535")
 	}
 	return port, nil
+}
+
+func quoteArgs(args []string) string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, quoteArg(arg))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func quoteArg(arg string) string {
+	if arg != "" && !strings.ContainsAny(arg, " \t\r\n'\\\"") {
+		return arg
+	}
+	return "'" + strings.ReplaceAll(arg, "'", "'\\''") + "'"
+}
+
+func splitArgs(value string) ([]string, error) {
+	// TUI 仍然用单行字段，但按 shellwords 规则解析，保留带空格的参数边界。
+	var args []string
+	var token strings.Builder
+	inSingle, inDouble, escaped, active := false, false, false, false
+
+	for _, r := range value {
+		switch {
+		case escaped:
+			token.WriteRune(r)
+			active = true
+			escaped = false
+		case r == '\\' && !inSingle:
+			escaped = true
+			active = true
+		case r == '\'' && !inDouble:
+			inSingle = !inSingle
+			active = true
+		case r == '"' && !inSingle:
+			inDouble = !inDouble
+			active = true
+		case isArgSpace(r) && !inSingle && !inDouble:
+			if active {
+				args = append(args, token.String())
+				token.Reset()
+				active = false
+			}
+		default:
+			token.WriteRune(r)
+			active = true
+		}
+	}
+
+	if escaped {
+		return nil, fmt.Errorf("extra args: unfinished escape")
+	}
+	if inSingle || inDouble {
+		return nil, fmt.Errorf("extra args: unclosed quote")
+	}
+	if active {
+		args = append(args, token.String())
+	}
+	return args, nil
+}
+
+func isArgSpace(r rune) bool {
+	return r == ' ' || r == '\t' || r == '\r' || r == '\n'
 }
 
 func portString(port int) string {

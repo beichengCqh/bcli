@@ -48,10 +48,7 @@ func (s Service) Run(kind string, profileName string, args []string) int {
 		return 2
 	}
 
-	executable, ok := profile.ResolveExecutableWithConfig(kind, cfg, p.Executable)
-	if !ok {
-		executable = profile.DefaultExecutable(kind)
-	}
+	executable, _, _ := resolveExecutable(kind, cfg, p.Executable)
 
 	cmdArgs := p.CommandArgs(kind)
 	cmdArgs = append(cmdArgs, args...)
@@ -88,8 +85,11 @@ func (s Service) TestConnection(kind string, profileName string, p profile.Exter
 	if err != nil {
 		return err
 	}
-	executable, ok := profile.ResolveExecutableWithConfig(kind, cfg, p.Executable)
+	executable, ok, explicit := resolveExecutable(kind, cfg, p.Executable)
 	if !ok {
+		if explicit {
+			return fmt.Errorf("configured executable not found: %s", executable)
+		}
 		return errors.New(profile.InstallHint(kind))
 	}
 
@@ -110,6 +110,23 @@ func (s Service) TestConnection(kind string, profileName string, p profile.Exter
 		return fmt.Errorf("connection test failed: %w", err)
 	}
 	return nil
+}
+
+func resolveExecutable(kind string, cfg profile.Config, configured string) (string, bool, bool) {
+	if configured != "" {
+		executable, ok := profile.ResolveExecutable(kind, configured)
+		return executable, ok, true
+	}
+	client := cfg.Client(kind)
+	if client.Enabled && client.Executable != "" {
+		executable, ok := profile.ResolveExecutable(kind, client.Executable)
+		return executable, ok, true
+	}
+	executable, ok := profile.DetectExecutable(kind)
+	if ok {
+		return executable, true, false
+	}
+	return profile.DefaultExecutable(kind), false, false
 }
 
 func testArgs(kind string, p profile.ExternalProfile) []string {

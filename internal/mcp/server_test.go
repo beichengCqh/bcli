@@ -83,6 +83,25 @@ func TestMCPProfileSetAndResourceReadDoNotExposePassword(t *testing.T) {
 	}
 }
 
+func TestMCPProfileResourceURIEscapesName(t *testing.T) {
+	profiles := &memoryProfileStore{cfg: profile.Config{
+		MySQL: map[string]profile.ExternalProfile{
+			"local/name ?": {Host: "127.0.0.1"},
+		},
+	}}
+	output := runServerWithStores(t, &fakeCredentialStore{}, profiles,
+		`{"jsonrpc":"2.0","id":1,"method":"resources/list"}`,
+		`{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"bcli://profiles/mysql/local%2Fname%20%3F"}}`,
+	)
+
+	if !strings.Contains(output, `bcli://profiles/mysql/local%2Fname%20%3F`) {
+		t.Fatalf("resources/list missing escaped URI: %s", output)
+	}
+	if !strings.Contains(output, `\"name\": \"local/name ?\"`) {
+		t.Fatalf("resources/read did not resolve escaped profile name: %s", output)
+	}
+}
+
 func TestMCPPromptsGet(t *testing.T) {
 	output := runServer(t,
 		`{"jsonrpc":"2.0","id":1,"method":"prompts/list"}`,

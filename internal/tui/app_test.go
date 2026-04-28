@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -10,7 +11,8 @@ import (
 )
 
 type fakeCredentialStore struct {
-	values map[string]string
+	values    map[string]string
+	deleteErr error
 }
 
 func (s *fakeCredentialStore) Set(kind string, name string, secret string) error {
@@ -30,6 +32,9 @@ func (s *fakeCredentialStore) Get(kind string, name string) (string, error) {
 }
 
 func (s *fakeCredentialStore) Delete(kind string, name string) error {
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
 	delete(s.values, kind+":"+auth.NormalizeProfileName(name))
 	return nil
 }
@@ -226,5 +231,58 @@ func TestTUIFormAllowsSpacesOutsideTypeField(t *testing.T) {
 
 	if m.form.args != "--ssl " {
 		t.Fatalf("args = %q, want trailing space", m.form.args)
+	}
+}
+
+func TestTUIFormPreservesQuotedExtraArgs(t *testing.T) {
+	m := model{form: form{
+		kind: "mysql",
+		name: "local",
+		args: `--execute "select 1" '--init-command=set names utf8mb4'`,
+	}}
+
+	_, p, err := m.form.profile()
+	if err != nil {
+		t.Fatalf("profile returned error: %v", err)
+	}
+	want := []string{"--execute", "select 1", "--init-command=set names utf8mb4"}
+	if strings.Join(p.Args, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("args = %#v, want %#v", p.Args, want)
+	}
+}
+
+func TestTUIFormFromEntryQuotesArgsWithSpaces(t *testing.T) {
+	f := formFromEntry(entry{kind: "mysql", name: "local", profile: profile.ExternalProfile{
+		Args: []string{"--execute", "select 1", "plain"},
+	}})
+
+	if f.args != "--execute 'select 1' plain" {
+		t.Fatalf("args = %q", f.args)
+	}
+}
+
+func TestTUIDeleteRefreshesListWhenCredentialDeleteFails(t *testing.T) {
+	credentials := &fakeCredentialStore{deleteErr: errors.New("keychain locked")}
+	profiles := &memoryProfileStore{cfg: profile.Config{
+		MySQL: map[string]profile.ExternalProfile{
+			"local": {Host: "127.0.0.1"},
+		},
+	}}
+	m, err := newModel(profile.NewService(profiles), auth.NewService(credentials))
+	if err != nil {
+		t.Fatalf("newModel returned error: %v", err)
+	}
+	m.screen = confirmDeleteScreen
+
+	m = m.updateConfirmDelete(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+
+	if len(m.entries) != 0 {
+		t.Fatalf("entries = %#v, want empty after persisted delete", m.entries)
+	}
+	if _, err := m.cfg.ExternalProfile("mysql", "local"); err == nil {
+		t.Fatalf("profile still exists in model config")
+	}
+	if !strings.Contains(m.message, "delete credential: keychain locked") {
+		t.Fatalf("message = %q", m.message)
 	}
 }

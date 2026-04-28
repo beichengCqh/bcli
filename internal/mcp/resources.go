@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"bcli/internal/core/profile"
@@ -24,7 +25,7 @@ func (s Server) handleResourcesList() (any, *rpcError) {
 	}
 	for _, view := range s.profileDTOs(cfg) {
 		resources = append(resources, resource(
-			fmt.Sprintf("bcli://profiles/%s/%s", view.Kind, view.Name),
+			fmt.Sprintf("bcli://profiles/%s/%s", view.Kind, escapeResourceSegment(view.Name)),
 			fmt.Sprintf("%s/%s", view.Kind, view.Name),
 			"One connection profile without secrets.",
 		))
@@ -95,18 +96,34 @@ func (s Server) readResourceValue(uri string) (any, error) {
 	default:
 		parts := strings.Split(strings.TrimPrefix(uri, "bcli://profiles/"), "/")
 		if len(parts) == 2 && profile.IsSupportedKind(parts[0]) {
+			name, err := unescapeResourceSegment(parts[1])
+			if err != nil {
+				return nil, err
+			}
 			cfg, err := s.profiles.LoadConfig()
 			if err != nil {
 				return nil, err
 			}
-			p, err := cfg.ExternalProfile(parts[0], parts[1])
+			p, err := cfg.ExternalProfile(parts[0], name)
 			if err != nil {
 				return nil, err
 			}
-			return s.profileDTO(parts[0], parts[1], p), nil
+			return s.profileDTO(parts[0], name, p), nil
 		}
 		return nil, fmt.Errorf("unknown resource uri: %s", uri)
 	}
+}
+
+func escapeResourceSegment(value string) string {
+	return url.PathEscape(value)
+}
+
+func unescapeResourceSegment(value string) (string, error) {
+	unescaped, err := url.PathUnescape(value)
+	if err != nil {
+		return "", fmt.Errorf("invalid resource uri escaping: %w", err)
+	}
+	return unescaped, nil
 }
 
 func (s Server) profileDTOsByKind(kind string) ([]profileDTO, error) {
